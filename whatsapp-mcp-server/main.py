@@ -13,6 +13,7 @@ from whatsapp import (
     send_file as whatsapp_send_file,
     send_audio_message as whatsapp_audio_voice_message,
     download_media as whatsapp_download_media
+    create_group as whatsapp_create_group
 )
 
 # Initialize FastMCP server
@@ -249,3 +250,11 @@ def download_media(message_id: str, chat_jid: str) -> Dict[str, Any]:
 if __name__ == "__main__":
     # Initialize and run the server
     mcp.run(transport='stdio')
+
+@mcp.tool()
+def create_group(name: str,
+                 participants: list[str],
+                 admins: list[str] | None = None,
+                 image: str | None = None) -> dict:
+    """Create a WhatsApp group, set its picture, and promote initial admins."""
+    return whatsapp_create_group(name, participants, admins, image)
