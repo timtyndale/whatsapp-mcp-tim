@@ -780,3 +780,16 @@ def create_group(name: str,
     res = requests.post(url, json=payload, timeout=20)
     res.raise_for_status()
     return res.json()
+
+def list_groups(expand_participants=False):
+    url = f"{WHATSAPP_API_BASE_URL}/groups"
+    if expand_participants:
+        url += "?expand=participants"
+    return requests.get(url, timeout=10).json()
+
+def patch_participants(group_jid: str, **ops):
+    payload = {k: v for k, v in ops.items() if v}
+    if not payload:
+        return
+    url = f"{WHATSAPP_API_BASE_URL}/groups/{group_jid}/participants"
+    requests.patch(url, json=payload, timeout=20).raise_for_status()
