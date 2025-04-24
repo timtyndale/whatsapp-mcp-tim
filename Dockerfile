@@ -10,6 +10,6 @@
     WORKDIR /app
     COPY --from=build /bin/bridge .
     ENV STORE_DIR=/data \
-        PORT=3000
-    EXPOSE 3000
+        PORT=8080
+    EXPOSE 8080
     ENTRYPOINT ["/app/bridge"]
