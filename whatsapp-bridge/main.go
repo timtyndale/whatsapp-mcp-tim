@@ -21,6 +21,9 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/mdp/qrterminal"
 
+	// ChatGPT
+	"github.com/gorilla/mux"
+
 	"bytes"
 
 	"go.mau.fi/whatsmeow"
@@ -58,6 +61,8 @@ type CreateGroupReq struct {
 type CreateGroupResp struct {
     GroupJID string `json:"group_jid"`
 }
+
+
 
 // Handler for creating groups (from ChatGPT)
 func handleCreateGroup(w http.ResponseWriter, r *http.Request) {
@@ -1422,4 +1427,85 @@ func placeholderWaveform(duration uint32) []byte {
 	}
 
 	return waveform
+}
+
+
+// Data model for the get groups GET response (ChatGPT)
+type GroupInfo struct {
+    JID         string   `json:"jid"`
+    Name        string   `json:"name"`
+    ParticipantCount int `json:"participant_count"`
+    Participants []string `json:"participants,omitempty"` // optional expansion
+}
+
+// Handler to get groups (ChatGPT)
+func handleListGroups(w http.ResponseWriter, r *http.Request) {
+    chats, err := client.GetJoinedGroups()   // WhatsMeow helper
+    if err != nil {
+        http.Error(w, err.Error(), 500)
+        return
+    }
+
+    var out []GroupInfo
+    for _, g := range chats {
+        gi := GroupInfo{
+            JID:  g.JID.String(),
+            Name: g.Name,
+            ParticipantCount: len(g.Participants),
+        }
+        // Optional: include full participant JIDs
+        if r.URL.Query().Get("expand") == "participants" {
+            for _, p := range g.Participants {
+                out = append(out, gi)
+            }
+        }
+        out = append(out, gi)
+    }
+    json.NewEncoder(w).Encode(out)
+}
+
+// Data model for list participants in a group (ChatGPT)
+type ParticipantPatch struct {
+    Add     []string `json:"add"`
+    Remove  []string `json:"remove"`
+    Promote []string `json:"promote"`
+    Demote  []string `json:"demote"`
+}
+
+// Handler to list participants in a group (ChatGPT)
+func handlePatchParticipants(w http.ResponseWriter, r *http.Request) {
+    vars := mux.Vars(r)
+    groupJID, err := types.ParseJID(vars["jid"])
+    if err != nil {
+        http.Error(w, "invalid JID", 400); return
+    }
+
+    var body ParticipantPatch
+    if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+        http.Error(w, err.Error(), 400); return
+    }
+
+    changes := map[types.JID]whatsmeow.ParticipantChange{}
+
+    for _, num := range body.Add {
+        changes[toJID(num)] = whatsmeow.ParticipantChangeAdd
+    }
+    for _, num := range body.Remove {
+        changes[toJID(num)] = whatsmeow.ParticipantChangeRemove
+    }
+    for _, num := range body.Promote {
+        changes[toJID(num)] = whatsmeow.ParticipantChangePromote
+    }
+    for _, num := range body.Demote {
+        changes[toJID(num)] = whatsmeow.ParticipantChangeDemote
+    }
+
+    if len(changes) == 0 {
+        w.WriteHeader(http.StatusNoContent); return
+    }
+
+    if err := client.UpdateGroupParticipants(groupJID, changes); err != nil {
+        http.Error(w, err.Error(), 500); return
+    }
+    w.WriteHeader(http.StatusOK)
 }
