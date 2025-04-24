@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"math"
 	"math/rand"
 	"net/http"
@@ -20,11 +21,6 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/mdp/qrterminal"
-
-	// ChatGPT
-	"github.com/gorilla/mux"
-
-	"bytes"
 
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
@@ -748,6 +744,20 @@ func extractDirectPathFromURL(url string) string {
 	return "/" + pathPart
 }
 
+type GroupInfo struct {
+	JID              string   `json:"jid"`
+	Name             string   `json:"name"`
+	ParticipantCount int      `json:"participant_count"`
+	Participants     []string `json:"participants,omitempty"`
+}
+
+type ParticipantPatch struct {
+	Add     []string `json:"add"`
+	Remove  []string `json:"remove"`
+	Promote []string `json:"promote"`
+	Demote  []string `json:"demote"`
+}
+
 // Start a REST API server to expose the WhatsApp client functionality
 func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port int) {
 	// Handler for sending messages
@@ -796,8 +806,95 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 		})
 	})
 
-	// Handler for creating group messages (from ChatGPT)
-	http.HandleFunc("/api/create_group", handleCreateGroup)
+	// Handler for creating group chats
+	http.HandleFunc("/api/create_group", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req CreateGroupReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest); return
+		}
+		if len(req.Name) == 0 || len(req.Name) > 25 || len(req.Participants) == 0 {
+			http.Error(w, "invalid name or participants", http.StatusBadRequest); return
+		}
+
+		// 1 · create group
+		jids := make([]types.JID, len(req.Participants))
+		for i, num := range req.Participants { jids[i] = toJID(num) }
+
+		gi, err := client.CreateGroup(whatsmeow.ReqCreateGroup{
+			Name:        req.Name,
+			Participants: jids,
+		})                                      // WhatsMeow helper 
+		if err != nil { http.Error(w, err.Error(), 500); return }
+
+		// 2 · optional picture
+		if req.ImageBase64 != "" {
+			img, _ := base64.StdEncoding.DecodeString(req.ImageBase64)
+			if err := client.SetGroupPhoto(gi.JID, img); err != nil { log.Printf("set photo: %v", err) }
+			// JPEG only  [oai_citation_attribution:1‡Go Packages](https://pkg.go.dev/github.com/go-whatsapp/whatsmeow?utm_source=chatgpt.com)
+		}
+
+		// 3 · promote admins
+		if len(req.Admins) > 0 {
+			changes := map[types.JID]whatsmeow.ParticipantChange{}
+			for _, a := range req.Admins { changes[toJID(a)] = whatsmeow.ParticipantChangePromote }
+			if err := client.UpdateGroupParticipants(gi.JID, changes); err != nil { log.Printf("promote: %v", err) }
+			// ParticipantChangePromote example  [oai_citation_attribution:2‡GitHub](https://github.com/tulir/whatsmeow/issues/324?utm_source=chatgpt.com)
+		}
+
+		json.NewEncoder(w).Encode(CreateGroupResp{GroupJID: gi.JID.String()})
+	})
+
+	// GET /api/groups
+	http.HandleFunc("/api/groups", func(w http.ResponseWriter, r *http.Request) {
+		grps, err := client.GetJoinedGroups()            // WhatsMeow API  [oai_citation_attribution:3‡Go Packages](https://pkg.go.dev/github.com/lucklrj/whatsmeow?utm_source=chatgpt.com)
+		if err != nil { http.Error(w, err.Error(), 500); return }
+
+		out := make([]GroupInfo, 0, len(grps))
+		for _, g := range grps {
+			info := GroupInfo{
+				JID:              g.JID.String(),
+				Name:             g.Name,
+				ParticipantCount: len(g.Participants),
+			}
+			if r.URL.Query().Get("expand") == "participants" {
+				for _, p := range g.Participants { info.Participants = append(info.Participants, p.String()) }
+			}
+			out = append(out, info)
+		}
+		json.NewEncoder(w).Encode(out)
+	})
+
+	// PATCH /api/groups/:jid/participants  (very small manual param parse)
+	http.HandleFunc("/api/groups/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || !strings.HasSuffix(r.URL.Path, "/participants") {
+			http.NotFound(w, r); return
+		}
+		parts := strings.Split(r.URL.Path, "/")
+		if len(parts) < 4 { http.Error(w, "bad path", 400); return }
+		groupJID, err := types.ParseJID(parts[3] + "@g.us")
+		if err != nil { http.Error(w, "invalid JID", 400); return }
+
+		var body ParticipantPatch
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil { http.Error(w, err.Error(), 400); return }
+
+		changes := map[types.JID]whatsmeow.ParticipantChange{}
+		for _, n := range body.Add { changes[toJID(n)] = whatsmeow.ParticipantChangeAdd }
+		for _, n := range body.Remove { changes[toJID(n)] = whatsmeow.ParticipantChangeRemove }
+		for _, n := range body.Promote { changes[toJID(n)] = whatsmeow.ParticipantChangePromote }
+		for _, n := range body.Demote { changes[toJID(n)] = whatsmeow.ParticipantChangeDemote }
+
+		if len(changes) == 0 { w.WriteHeader(http.StatusNoContent); return }
+
+		if err := client.UpdateGroupParticipants(groupJID, changes); err != nil {
+			http.Error(w, err.Error(), 500); return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
 	
 	// Handler for downloading media
 	http.HandleFunc("/api/download", func(w http.ResponseWriter, r *http.Request) {
