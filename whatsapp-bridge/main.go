@@ -792,7 +792,7 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 	})
 
 	// Handler for creating group messages (from ChatGPT)
-	http.HandleFunc("/create_group", handleCreateGroup)
+	http.HandleFunc("/api/create_group", handleCreateGroup)
 	
 	// Handler for downloading media
 	http.HandleFunc("/api/download", func(w http.ResponseWriter, r *http.Request) {
