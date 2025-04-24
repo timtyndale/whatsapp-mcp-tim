@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/binary"
 	"encoding/json"
+	"encoding/base64"
 	"fmt"
 	"math"
 	"math/rand"
@@ -44,6 +45,73 @@ type Message struct {
 // Database handler for storing message history
 type MessageStore struct {
 	db *sql.DB
+}
+
+// Adding request/response structs (from ChatGPT)
+type CreateGroupReq struct {
+    Name         string   `json:"name"`         // 1–25 chars
+    Participants []string `json:"participants"` // E.164 numbers, no '+'
+    Admins       []string `json:"admins"`       // subset of Participants
+    ImageBase64  string   `json:"image"`        // optional JPEG
+}
+
+type CreateGroupResp struct {
+    GroupJID string `json:"group_jid"`
+}
+
+// Handler for creating groups (from ChatGPT)
+func handleCreateGroup(w http.ResponseWriter, r *http.Request) {
+    if r.Method != http.MethodPost {
+        http.Error(w, "POST only", http.StatusMethodNotAllowed)
+        return
+    }
+
+    var req CreateGroupReq
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+    if len(req.Name) == 0 || len(req.Name) > 25 || len(req.Participants) == 0 {
+        http.Error(w, "invalid name or participants", http.StatusBadRequest)
+        return
+    }
+
+    // -------- 1 · create group --------
+    jids := make([]types.JID, len(req.Participants))
+    for i, num := range req.Participants {
+        jids[i] = toJID(num)
+    }
+
+    gi, err := client.CreateGroup(whatsmeow.ReqCreateGroup{
+        Name:        req.Name,
+        Participants: jids,
+    }) //  [oai_citation_attribution:0‡GitHub](https://github.com/tulir/whatsmeow/blob/main/group.go?utm_source=chatgpt.com)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+
+    // -------- 2 · optional photo --------
+    if req.ImageBase64 != "" {
+        img, _ := base64.StdEncoding.DecodeString(req.ImageBase64)
+        if err := client.SetGroupPhoto(gi.JID, img); err != nil {
+            log.Printf("warning: set photo failed: %v", err)
+        }
+        // SetGroupPhoto expects JPEG bytes   [oai_citation_attribution:1‡Go Packages](https://pkg.go.dev/github.com/go-whatsapp/whatsmeow?utm_source=chatgpt.com)
+    }
+
+    // -------- 3 · promote admins --------
+    if len(req.Admins) > 0 {
+        changes := map[types.JID]whatsmeow.ParticipantChange{}
+        for _, a := range req.Admins {
+            changes[toJID(a)] = whatsmeow.ParticipantChangePromote
+        }
+        if err := client.UpdateGroupParticipants(gi.JID, changes); err != nil {
+            log.Printf("warning: promote admins failed: %v", err)
+        } // UpdateGroupParticipants   [oai_citation_attribution:2‡Go Packages](https://pkg.go.dev/github.com/go-whatsapp/whatsmeow?utm_source=chatgpt.com)
+    }
+
+    json.NewEncoder(w).Encode(CreateGroupResp{GroupJID: gi.JID.String()})
 }
 
 // Initialize message store
@@ -723,6 +791,9 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 		})
 	})
 
+	// Handler for creating group messages (from ChatGPT)
+	http.HandleFunc("/create_group", handleCreateGroup)
+	
 	// Handler for downloading media
 	http.HandleFunc("/api/download", func(w http.ResponseWriter, r *http.Request) {
 		// Only allow POST requests
@@ -784,6 +855,12 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 			fmt.Printf("REST API server error: %v\n", err)
 		}
 	}()
+}
+
+// Helper to turn phone -> JID" (added from ChatGPT)
+func toJID(num string) types.JID {
+    num = strings.TrimPrefix(num, "+")
+    return types.NewJID(num, "s.whatsapp.net")
 }
 
 func main() {
