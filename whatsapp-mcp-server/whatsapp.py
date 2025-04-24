@@ -766,14 +766,17 @@ def download_media(message_id: str, chat_jid: str) -> Optional[str]:
         print(f"Unexpected error: {str(e)}")
         return None
 
-def create_group(name:str, participants:list[str],
-                 admins:list[str]|None=None, image:str|None=None)->dict:
+def create_group(name: str,
+                 participants: list[str],
+                 admins: list[str] | None = None,
+                 image: str | None = None) -> dict:
     payload = {
         "name": name,
         "participants": participants,
         "admins": admins or [],
         "image": image or ""
     }
-    res = httpx.post(f"{WHATSAPP_API_BASE_URL}/create_group", json=payload, timeout=20)
+    url = f"{WHATSAPP_API_BASE_URL}/create_group"   # <-- keep the prefix
+    res = requests.post(url, json=payload, timeout=20)
     res.raise_for_status()
     return res.json()
