@@ -1,5 +1,5 @@
 # ────────── 1. BUILD STAGE ─────────────────────────────────────────────
-FROM golang:1.22 AS build
+FROM golang:1.24.2 AS build
 
 # Basic tools Go falls back to for HTTPS / git fetches
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -19,9 +19,6 @@ ENV GOPROXY=https://proxy.golang.org,direct \
 
 # Download deps (cached unless go.mod/go.sum change)
 WORKDIR /src/whatsapp-bridge
-
-# 👇 TEMP: print verbose module fetch
-RUN GODEBUG=x509roots=1 go mod download -x
 
 RUN go mod download
 
