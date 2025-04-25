@@ -19,6 +19,10 @@ ENV GOPROXY=https://proxy.golang.org,direct \
 
 # Download deps (cached unless go.mod/go.sum change)
 WORKDIR /src/whatsapp-bridge
+
+# 👇 TEMP: print verbose module fetch
+RUN GODEBUG=x509roots=1 go mod download -x
+
 RUN go mod download
 
 # ── Copy the rest of the source tree and build the binary ──
