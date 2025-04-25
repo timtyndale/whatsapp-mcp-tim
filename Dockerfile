@@ -31,7 +31,8 @@ FROM gcr.io/distroless/base-debian12
 
 WORKDIR /app
 ENV STORE_DIR=/data \
-    PORT=8080          # startRESTServer listens on :8080
+    PORT=8080          
+    # startRESTServer listens on :8080
 
 # Bring in the static binary
 COPY --from=build /bin/bridge .
