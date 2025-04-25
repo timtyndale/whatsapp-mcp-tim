@@ -1,45 +1,40 @@
-# ---------- 1. Build stage ----------------------------------------------------
-# We keep this stage separate so its layers can be cached.
+# ────────── 1. BUILD STAGE ─────────────────────────────────────────────
 FROM golang:1.22 AS build
 
-# Install the minimal tools Go needs to fetch modules via HTTPS/Git.
+# Basic tools Go falls back to for HTTPS / git fetches
 RUN apt-get update && apt-get install -y --no-install-recommends \
         git ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
+# All subsequent paths live under /src
 WORKDIR /src
 
-# Copy ONLY go.mod and go.sum first —
-# this lets `go mod download` be cached in CI if the source code hasn’t changed.
-COPY go.mod go.sum ./
+# ── Copy ONLY the module manifests (cacheable layer) ──
+#    Place them in the same sub-folder structure they have in the repo.
+COPY whatsapp-bridge/go.mod whatsapp-bridge/go.sum ./whatsapp-bridge/
 
-# Speed & reliability tweaks for CI networks:
-#  * try proxy.golang.org first, fall back to a direct Git/HTTPS fetch
-#  * leave checksum DB enabled (secure) but override if your runner blocks it
+# Tell Go: “try proxy.golang.org first, then direct git/https”
 ENV GOPROXY=https://proxy.golang.org,direct \
     GOSUMDB=sum.golang.org
 
+# Download deps (cached unless go.mod/go.sum change)
+WORKDIR /src/whatsapp-bridge
 RUN go mod download
 
-# Now bring in the rest of the source tree and build the WhatsApp bridge.
+# ── Copy the rest of the source tree and build the binary ──
+WORKDIR /src
 COPY . .
-RUN go build -o /bin/bridge ./whatsapp-bridge
+RUN cd whatsapp-bridge && go build -o /bin/bridge .
 
-# ---------- 2. Runtime stage --------------------------------------------------
-# Distroless keeps the final image tiny (~20 MB) and non-root by default.
+# ────────── 2. RUNTIME STAGE ───────────────────────────────────────────
 FROM gcr.io/distroless/base-debian12
 
-# Bridge expects STORE_DIR to hold whatsapp.db / messages.db
 WORKDIR /app
 ENV STORE_DIR=/data \
-    PORT=8080
-    # startRESTServer listens on :8080
+    PORT=8080          # startRESTServer listens on :8080
 
-# Copy the statically linked binary from the build stage.
+# Bring in the static binary
 COPY --from=build /bin/bridge .
 
-# Make port visible to orchestration platforms (Railway, Fly, etc.)
 EXPOSE 8080
-
-# Launch!
 ENTRYPOINT ["/app/bridge"]
