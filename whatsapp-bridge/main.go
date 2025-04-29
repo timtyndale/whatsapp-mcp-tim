@@ -1,5 +1,3 @@
-// Global QR channel populated before connecting
-var globalQRChan <-chan events.QRChannelEvent
 package main
 
 import (
@@ -708,6 +706,9 @@ func extractDirectPathFromURL(url string) string {
 	return "/" + pathPart
 }
 
+// Global QR channel for /qr endpoint
+var globalQRChan <-chan whatsmeow.QRChannelItem
+
 // Start a REST API server to expose the WhatsApp client functionality
 func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port int) {
 	// SSE endpoint for QR codes
@@ -731,6 +732,7 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 		}
 
 		for evt := range globalQRChan {
+			// QRChannelItem has fields Event (string) and Code (string)
 			if evt.Event == "code" {
 				fmt.Fprintf(w, "data: %s\n\n", evt.Code)
 			} else if evt.Event == "success" {
@@ -1046,7 +1048,7 @@ func main() {
 	}
 	defer messageStore.Close()
 
-	// If no existing session, capture the QR channel before connecting
+	// Initialize global QR channel before connecting if pairing is needed
 	if client.Store.ID == nil {
 		var err error
 		globalQRChan, err = client.GetQRChannel(context.Background())
@@ -1083,6 +1085,7 @@ func main() {
 	// Connect to WhatsApp
 	if client.Store.ID == nil {
 		// No ID stored, this is a new client, need to pair with phone
+		qrChan, _ := client.GetQRChannel(context.Background())
 		err = client.Connect()
 		if err != nil {
 			logger.Errorf("Failed to connect: %v", err)
@@ -1090,7 +1093,7 @@ func main() {
 		}
 
 		// Print QR code for pairing with phone
-		for evt := range globalQRChan {
+		for evt := range qrChan {
 			if evt.Event == "code" {
 				fmt.Println("\nScan this QR code with your WhatsApp app:")
 				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
