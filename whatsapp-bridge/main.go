@@ -708,6 +708,42 @@ func extractDirectPathFromURL(url string) string {
 
 // Start a REST API server to expose the WhatsApp client functionality
 func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port int) {
+	// SSE endpoint for QR codes
+	http.HandleFunc("/qr", func(w http.ResponseWriter, r *http.Request) {
+		// Only allow GET
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		// Set headers for SSE
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+
+		// Get QR channel from WhatsMeow client
+		qrChan, err := client.GetQRChannel(context.Background())
+		if err != nil {
+			http.Error(w, "Failed to get QR channel: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+			return
+		}
+
+		for evt := range qrChan {
+			if evt.Event == "code" {
+				fmt.Fprintf(w, "data: %s\n\n", evt.Code)
+			} else if evt.Event == "success" {
+				fmt.Fprintf(w, "data: done\n\n")
+				flusher.Flush()
+				break
+			}
+			flusher.Flush()
+		}
+	})
 	// Health check endpoint
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		// Always return 200 OK
