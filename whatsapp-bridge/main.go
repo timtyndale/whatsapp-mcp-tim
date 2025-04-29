@@ -1022,7 +1022,11 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 				log.Printf("Reconnect error: %v", err)
 			}
 		}()
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(struct {
+			Status string `json:"status"`
+		}{Status: "pairing_started"})
 	})
 
 	// Start the server
