@@ -1002,16 +1002,16 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 	serverAddr := fmt.Sprintf(":%d", port)
 	fmt.Printf("Starting REST API server on %s...\n", serverAddr)
 
-	// Configure CORS for all routes
+	// Configure CORS for all routes, explicitly allowing SSE and credentials
 	c := cors.New(cors.Options{
 		AllowedOrigins: []string{
 			"http://localhost:5173",
 			"https://whats-app-central-view.lovable.app",
 			"https://6328b935-5bd9-4a68-8e5e-2d4597dbb49b.lovableproject.com"},
 		AllowedMethods:   []string{"GET", "POST", "PATCH", "OPTIONS"},
-		AllowedHeaders:   []string{"Content-Type"},
+		AllowedHeaders:   []string{"Content-Type", "Accept"},
 		ExposedHeaders:   []string{"Content-Length"},
-		AllowCredentials: false,
+		AllowCredentials: true,
 	})
 
 	// Run server in a goroutine so it doesn't block
