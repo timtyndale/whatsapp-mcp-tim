@@ -998,6 +998,33 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 		json.NewEncoder(w).Encode(status)
 	})
 
+	// POST /api/connect – restart WhatsApp pairing without restarting the server
+	http.HandleFunc("/api/connect", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		// If already connected, no action needed
+		if client.IsConnected() {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		// Reinitialize the QR channel
+		var err error
+		globalQRChan, err = client.GetQRChannel(r.Context())
+		if err != nil {
+			http.Error(w, "Failed to initialize QR channel: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		// Kick off connect in background so it doesn’t block
+		go func() {
+			if err := client.Connect(); err != nil {
+				log.Printf("Reconnect error: %v", err)
+			}
+		}()
+		w.WriteHeader(http.StatusAccepted)
+	})
+
 	// Start the server
 	serverAddr := fmt.Sprintf(":%d", port)
 	fmt.Printf("Starting REST API server on %s...\n", serverAddr)
