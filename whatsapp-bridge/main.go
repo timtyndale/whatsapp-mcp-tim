@@ -1569,3 +1569,19 @@ func placeholderWaveform(duration uint32) []byte {
 
 	return waveform
 }
+
+	// GET /api/status – returns current WhatsApp connection state
+	http.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		// Prepare JSON response
+		status := struct {
+			Connected bool `json:"connected"`
+		}{
+			Connected: client.IsConnected(),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(status)
+	})
