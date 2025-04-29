@@ -22,6 +22,8 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 
+	"github.com/rs/cors"
+
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
 	"go.mau.fi/whatsmeow/store/sqlstore"
@@ -1000,9 +1002,18 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 	serverAddr := fmt.Sprintf(":%d", port)
 	fmt.Printf("Starting REST API server on %s...\n", serverAddr)
 
+	// Configure CORS for all routes
+	c := cors.New(cors.Options{
+		AllowedOrigins:   []string{"http://localhost:5173", "https://my-app.lovable.dev"},
+		AllowedMethods:   []string{"GET", "POST", "PATCH", "OPTIONS"},
+		AllowedHeaders:   []string{"Content-Type"},
+		ExposedHeaders:   []string{"Content-Length"},
+		AllowCredentials: false,
+	})
+
 	// Run server in a goroutine so it doesn't block
 	go func() {
-		if err := http.ListenAndServe(serverAddr, nil); err != nil {
+		if err := http.ListenAndServe(serverAddr, c.Handler(nil)); err != nil {
 			fmt.Printf("REST API server error: %v\n", err)
 		}
 	}()
