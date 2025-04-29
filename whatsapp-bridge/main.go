@@ -21,7 +21,6 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/mdp/qrterminal"
 
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/binary/proto"
@@ -1063,15 +1062,6 @@ func main() {
 	}
 	defer messageStore.Close()
 
-	// Initialize global QR channel before connecting if pairing is needed
-	if client.Store.ID == nil {
-		var err error
-		globalQRChan, err = client.GetQRChannel(context.Background())
-		if err != nil {
-			logger.Errorf("Failed to initialize QR channel: %v", err)
-		}
-	}
-
 	// Start REST API server immediately for health checks
 	startRESTServer(client, messageStore, 8080)
 
@@ -1099,33 +1089,19 @@ func main() {
 
 	// Connect to WhatsApp
 	if client.Store.ID == nil {
-		// No ID stored, this is a new client, need to pair with phone
-		qrChan, _ := client.GetQRChannel(context.Background())
+		// Initialize QR channel and connect; pairing will be served via /qr endpoint
+		var err error
+		globalQRChan, err = client.GetQRChannel(context.Background())
+		if err != nil {
+			logger.Errorf("Failed to initialize QR channel: %v", err)
+			return
+		}
 		err = client.Connect()
 		if err != nil {
 			logger.Errorf("Failed to connect: %v", err)
 			return
 		}
-
-		// Print QR code for pairing with phone
-		for evt := range qrChan {
-			if evt.Event == "code" {
-				fmt.Println("\nScan this QR code with your WhatsApp app:")
-				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
-			} else if evt.Event == "success" {
-				connected <- true
-				break
-			}
-		}
-
-		// Wait for connection
-		select {
-		case <-connected:
-			fmt.Println("\nSuccessfully connected and authenticated!")
-		case <-time.After(3 * time.Minute):
-			logger.Errorf("Timeout waiting for QR code scan")
-			return
-		}
+		connected <- true
 	} else {
 		// Already logged in, just connect
 		err = client.Connect()
