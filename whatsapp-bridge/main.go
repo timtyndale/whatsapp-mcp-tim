@@ -1141,21 +1141,23 @@ func main() {
 		globalQRChan, err = client.GetQRChannel(context.Background())
 		if err != nil {
 			logger.Errorf("Failed to initialize QR channel: %v", err)
-			return
-		}
-
-		// Start connecting; this will trigger QR events on globalQRChan
-		err = client.Connect()
-		if err != nil {
-			logger.Errorf("Failed to connect: %v", err)
-			return
-		}
-
-		// Wait for the "success" event before proceeding
-		for evt := range globalQRChan {
-			if evt.Event == "success" {
-				connected <- true
-				break
+			// Notify front end disconnected state, but do not exit
+			connected <- false
+		} else {
+			// Start connecting; this will trigger QR events on globalQRChan
+			err = client.Connect()
+			if err != nil {
+				logger.Errorf("Failed to connect: %v", err)
+				// Notify front end disconnected state, but do not exit
+				connected <- false
+			} else {
+				// Wait for the "success" event before proceeding
+				for evt := range globalQRChan {
+					if evt.Event == "success" {
+						connected <- true
+						break
+					}
+				}
 			}
 		}
 	} else {
@@ -1163,18 +1165,21 @@ func main() {
 		err = client.Connect()
 		if err != nil {
 			logger.Errorf("Failed to connect: %v", err)
-			return
+			// Notify front end disconnected state, but do not exit
+			connected <- false
+		} else {
+			// Confirm connection
+			connected <- true
 		}
-		// Confirm connection
-		connected <- true
 	}
 
 	// Wait a moment for connection to stabilize
 	time.Sleep(2 * time.Second)
 
 	if !client.IsConnected() {
-		logger.Errorf("Failed to establish stable connection")
-		return
+		logger.Warnf("Connection unstable; continuing to serve endpoints")
+		// Notify front end disconnected status
+		connected <- false
 	}
 
 	fmt.Println("\n✓ Connected to WhatsApp! Type 'help' for commands.")
