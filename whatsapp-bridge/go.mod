@@ -4,7 +4,7 @@ go 1.24.1
 
 require (
 	github.com/mattn/go-sqlite3 v1.14.24
-	github.com/mdp/qrterminal v1.0.1
+	github.com/rs/cors v1.11.1
 	go.mau.fi/whatsmeow v0.0.0-20250318233852-06705625cf82
 	google.golang.org/protobuf v1.36.5
 )
@@ -21,5 +21,4 @@ require (
 	golang.org/x/crypto v0.36.0 // indirect
 	golang.org/x/net v0.37.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
-	rsc.io/qr v0.2.0 // indirect
 )
