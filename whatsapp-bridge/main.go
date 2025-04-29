@@ -1013,7 +1013,9 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 
 	// Run server in a goroutine so it doesn't block
 	go func() {
-		if err := http.ListenAndServe(serverAddr, c.Handler(nil)); err != nil {
+		// Wrap the standard http.DefaultServeMux with CORS middleware
+		handler := c.Handler(http.DefaultServeMux)
+		if err := http.ListenAndServe(serverAddr, handler); err != nil {
 			fmt.Printf("REST API server error: %v\n", err)
 		}
 	}()
