@@ -1004,7 +1004,7 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 
 	// Configure CORS for all routes
 	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:5173", "https://my-app.lovable.dev"},
+		AllowedOrigins:   []string{"http://localhost:5173", "https://whats-app-central-view.lovable.app"},
 		AllowedMethods:   []string{"GET", "POST", "PATCH", "OPTIONS"},
 		AllowedHeaders:   []string{"Content-Type"},
 		ExposedHeaders:   []string{"Content-Length"},
