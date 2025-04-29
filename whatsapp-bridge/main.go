@@ -1013,6 +1013,9 @@ func main() {
 	}
 	defer messageStore.Close()
 
+	// Start REST API server immediately for health checks
+	startRESTServer(client, messageStore, 8080)
+
 	// Setup event handling for messages and history sync
 	client.AddEventHandler(func(evt interface{}) {
 		switch v := evt.(type) {
@@ -1083,9 +1086,6 @@ func main() {
 	}
 
 	fmt.Println("\n✓ Connected to WhatsApp! Type 'help' for commands.")
-
-	// Start REST API server
-	startRESTServer(client, messageStore, 8080)
 
 	// Create a channel to keep the main goroutine alive
 	exitChan := make(chan os.Signal, 1)
