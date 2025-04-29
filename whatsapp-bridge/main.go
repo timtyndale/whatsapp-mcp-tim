@@ -982,6 +982,21 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 		})
 	})
 
+	// GET /api/status – returns current WhatsApp connection state
+	http.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		status := struct {
+			Connected bool `json:"connected"`
+		}{
+			Connected: client.IsConnected(),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(status)
+	})
+
 	// Start the server
 	serverAddr := fmt.Sprintf(":%d", port)
 	fmt.Printf("Starting REST API server on %s...\n", serverAddr)
@@ -1569,19 +1584,3 @@ func placeholderWaveform(duration uint32) []byte {
 
 	return waveform
 }
-
-	// GET /api/status – returns current WhatsApp connection state
-	http.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		// Prepare JSON response
-		status := struct {
-			Connected bool `json:"connected"`
-		}{
-			Connected: client.IsConnected(),
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(status)
-	})
