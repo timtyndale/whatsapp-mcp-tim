@@ -1004,19 +1004,24 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		// If already connected, no action needed
-		if client.IsConnected() {
-			w.WriteHeader(http.StatusNoContent)
+		// Check existing session
+		sessionExists := client.Store.ID != nil && client.IsConnected()
+		// If session valid, respond
+		if sessionExists {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(struct {
+				Session   bool `json:"session"`
+				Connected bool `json:"connected"`
+			}{Session: true, Connected: true})
 			return
 		}
-		// Reinitialize the QR channel
-		var err error
+		// Else, remove any stale session and start pairing
+		os.Remove("store/whatsapp.db")
 		globalQRChan, err = client.GetQRChannel(r.Context())
 		if err != nil {
-			http.Error(w, "Failed to initialize QR channel: "+err.Error(), http.StatusInternalServerError)
+			http.Error(w, "Failed to init QR channel: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		// Kick off connect in background so it doesn’t block
 		go func() {
 			if err := client.Connect(); err != nil {
 				log.Printf("Reconnect error: %v", err)
@@ -1025,8 +1030,9 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
 		json.NewEncoder(w).Encode(struct {
-			Status string `json:"status"`
-		}{Status: "pairing_started"})
+			Session   bool `json:"session"`
+			Connected bool `json:"connected"`
+		}{Session: false, Connected: false})
 	})
 
 	// Start the server
@@ -1134,55 +1140,51 @@ func main() {
 	// Create channel to track connection success
 	connected := make(chan bool, 1)
 
-	// Connect to WhatsApp
-	if client.Store.ID == nil {
-		// Set up QR channel and initiate pairing
+	// Determine if a session exists
+	hasSession := client.Store.ID != nil
+
+	if hasSession {
+		// Try reconnect using existing session
+		err := client.Connect()
+		if err == nil && client.IsConnected() {
+			// Connected with stored session
+			connected <- true
+		} else {
+			// Session invalid or disconnected—remove it and fall back to QR
+			os.Remove("store/whatsapp.db")
+			hasSession = false
+		}
+	}
+
+	if !hasSession {
+		// No valid session: start pairing flow
 		var err error
 		globalQRChan, err = client.GetQRChannel(context.Background())
 		if err != nil {
 			logger.Errorf("Failed to initialize QR channel: %v", err)
-			// Notify front end disconnected state, but do not exit
 			connected <- false
 		} else {
-			// Start connecting; this will trigger QR events on globalQRChan
-			err = client.Connect()
-			if err != nil {
-				logger.Errorf("Failed to connect: %v", err)
-				// Notify front end disconnected state, but do not exit
-				connected <- false
-			} else {
-				// Wait for the "success" event before proceeding
-				for evt := range globalQRChan {
-					if evt.Event == "success" {
-						connected <- true
-						break
-					}
+			go func() {
+				if err := client.Connect(); err != nil {
+					logger.Errorf("Error during pairing connect: %v", err)
+				}
+			}()
+			// Wait for success event
+			for evt := range globalQRChan {
+				if evt.Event == "success" {
+					connected <- true
+					break
 				}
 			}
 		}
+	}
+
+	// Announce initial state
+	if <-connected {
+		fmt.Println("\n✓ Connected to WhatsApp! Type 'help' for commands.")
 	} else {
-		// Already paired: just connect immediately
-		err = client.Connect()
-		if err != nil {
-			logger.Errorf("Failed to connect: %v", err)
-			// Notify front end disconnected state, but do not exit
-			connected <- false
-		} else {
-			// Confirm connection
-			connected <- true
-		}
+		fmt.Println("\n⚠️ Not connected. Scan QR at /qr to pair.")
 	}
-
-	// Wait a moment for connection to stabilize
-	time.Sleep(2 * time.Second)
-
-	if !client.IsConnected() {
-		logger.Warnf("Connection unstable; continuing to serve endpoints")
-		// Notify front end disconnected status
-		connected <- false
-	}
-
-	fmt.Println("\n✓ Connected to WhatsApp! Type 'help' for commands.")
 
 	// Create a channel to keep the main goroutine alive
 	exitChan := make(chan os.Signal, 1)
