@@ -1136,26 +1136,36 @@ func main() {
 
 	// Connect to WhatsApp
 	if client.Store.ID == nil {
-		// Initialize QR channel and connect; pairing will be served via /qr endpoint
+		// Set up QR channel and initiate pairing
 		var err error
 		globalQRChan, err = client.GetQRChannel(context.Background())
 		if err != nil {
 			logger.Errorf("Failed to initialize QR channel: %v", err)
 			return
 		}
+
+		// Start connecting; this will trigger QR events on globalQRChan
 		err = client.Connect()
 		if err != nil {
 			logger.Errorf("Failed to connect: %v", err)
 			return
 		}
-		connected <- true
+
+		// Wait for the "success" event before proceeding
+		for evt := range globalQRChan {
+			if evt.Event == "success" {
+				connected <- true
+				break
+			}
+		}
 	} else {
-		// Already logged in, just connect
+		// Already paired: just connect immediately
 		err = client.Connect()
 		if err != nil {
 			logger.Errorf("Failed to connect: %v", err)
 			return
 		}
+		// Confirm connection
 		connected <- true
 	}
 
